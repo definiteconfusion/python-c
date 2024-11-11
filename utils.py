@@ -24,7 +24,7 @@ class Commands:
             "float": "%f",
             "str": "%s",
             "bool": "%d",
-        }[type]
+        }[type.__name__]
         self.cmd_map = {
             "print": self._print(),
         }
