@@ -7,3 +7,4 @@ def main():
 
 for instruction in dis.get_instructions(main):
         print(instruction.opname, instruction.argval, "\n")
+        # print(instruction, "\n")
