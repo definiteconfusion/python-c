@@ -26,6 +26,7 @@ class Objects:
         _print(): Handles print function translation
         _type(): Handles type() function translation
         _str(): Handles str() function translation
+        _len(): Handles len() function translation
     """
     def __init__(self) -> None:
         self.const_stack=[]
@@ -38,17 +39,18 @@ class Objects:
         self.global_stack.append(instruction.argval)
     def load_const(self, instruction):
         self.const_stack.append(instruction.argval)
-    def call_stack(self):
+    def call_stack(self, instruction):
         cmd_map = {
             "print": self._print,
             "type": self._type,
             "str": self._str,
-            "len": self._len
+            "len": self._len,
+            "append": self._append
         }
         if self.global_stack[-1] in cmd_map:
             result = cmd_map[self.global_stack[-1]]()
             if result:
-                self.rust += result
+                self.rust += f"/* {instruction.positions.lineno} */\n{result};\n"
             self.global_stack.pop()
     def pop_top(self):
         self.const_stack=[]
@@ -63,15 +65,15 @@ class Objects:
     def list_extend(self):
         itms = list(self.const_stack[len(self.const_stack)-1])
         self.const_stack.pop(len(self.const_stack)-1)
-        self.const_stack.append((json.dumps(itms), 'Operator'))
+        self.const_stack.append((f"vec!{json.dumps(itms)}", 'Operator'))
         pass
     def build_list(self, instruction):
         if instruction.argval == 0:
             pass
         elif instruction.argval == 1:
-            self.const_stack.append((json.dumps([self.const_stack[len(self.const_stack)-1]]), 'Operator'))
+            self.const_stack.append((f"vec!{json.dumps([self.const_stack[len(self.const_stack)-1]])}", 'Operator'))
         elif instruction.argval == 2:
-            self.const_stack.append((json.dumps([self.const_stack[len(self.const_stack)-2], self.const_stack[len(self.const_stack)-1]]), 'Operator'))
+            self.const_stack.append((f"vec!{json.dumps([self.const_stack[len(self.const_stack)-2], self.const_stack[len(self.const_stack)-1]])}"), 'Operator')
     def store_fast(self, instruction):
         if instruction.argval not in self.fast:
             if type(self.const_stack[len(self.const_stack)-1])  == int:
@@ -82,22 +84,22 @@ class Objects:
                     int_type = 64
                 else:
                     int_type = 128
-                self.rust += f'let mut {instruction.argval}: i{int_type} = {self.const_stack[len(self.const_stack)-1]}\n'
+                self.rust += f'/* {instruction.positions.lineno} */\nlet mut {instruction.argval}: i{int_type} = {self.const_stack[len(self.const_stack)-1]};\n'
             elif type(self.const_stack[len(self.const_stack)-1]) == float:
                 value = abs(self.const_stack[len(self.const_stack)-1])
                 if value < 3.4e38:
                     fl_type = 32
                 else:
                     fl_type = 64
-                self.rust += f'let mut {instruction.argval}: f{fl_type} = {self.const_stack[len(self.const_stack)-1]}\n'
+                self.rust += f'/* {instruction.positions.lineno} */\nlet mut {instruction.argval}: f{fl_type} = {self.const_stack[len(self.const_stack)-1]};\n'
             elif type(self.const_stack[len(self.const_stack)-1]) == str:
-                self.rust += f'let mut {instruction.argval} = "{self.const_stack[len(self.const_stack)-1]}"\n'
+                self.rust += f'/* {instruction.positions.lineno} */\nlet mut {instruction.argval} = "{self.const_stack[len(self.const_stack)-1]}";\n'
             elif type(self.const_stack[len(self.const_stack)-1]) == tuple and self.const_stack[len(self.const_stack)-1][1] == 'Operator':
-                self.rust += f'let mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1][0]}\n'
+                self.rust += f'/* {instruction.positions.lineno} */\nlet mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1][0]};\n'
             else:
-                self.rust += f'let mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1]}\n'
+                self.rust += f'/* {instruction.positions.lineno} */\nlet mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1]};\n'
         else:
-            self.rust += f'{instruction.argval} = {self.const_stack[len(self.const_stack)-1]}\n'
+            self.rust += f'/* {instruction.positions.lineno} */\n{instruction.argval} = {self.const_stack[len(self.const_stack)-1]};\n'
         self.fast[instruction.argval] = self.const_stack[len(self.const_stack)-1]
         self.const_stack.pop(len(self.const_stack)-1)
         pass
@@ -110,11 +112,11 @@ class Objects:
     def _print(self):
         if not len(self.const_stack) == 0:
             if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
-                return f'println!("{{:?}}", {self.const_stack[len(self.const_stack) - 1][0]})\n'
+                return f'println!("{{:?}}", {self.const_stack[len(self.const_stack) - 1][0]})'
             else:
-                return f'println!("{{:?}}", "{self.const_stack[len(self.const_stack) - 1]}")\n'
+                return f'println!("{{:?}}", "{self.const_stack[len(self.const_stack) - 1]}")'
         else:
-            return 'println!("")\n'
+            return 'println!("")'
     def _type(self):
         if len(self.const_stack) != 0:
             if "o_type" not in self.optionals:
@@ -125,7 +127,7 @@ class Objects:
                 self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1]})', 'Operator'))
             return ""
         else:
-            self.const_stack.append('println!("")\n')
+            self.const_stack.append('println!("")')
             return "NaN"
     def _str(self):
         if len(self.const_stack) != 0:
@@ -135,7 +137,7 @@ class Objects:
                 self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1]}.to_string()', 'Operator'))
             return ""
         else:
-            self.const_stack.append('println!("")\n')
+            self.const_stack.append('println!("")')
             return "NaN"
     def _len(self):
         if len(self.const_stack) != 0:
@@ -145,7 +147,28 @@ class Objects:
                 self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1]}.len()', 'Operator'))
             return ""
         else:
-            self.const_stack.append('println!("")\n')
+            self.const_stack.append('println!("")')
+            return "NaN"
+    def _append(self):
+        if len(self.const_stack) != 0:
+            if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                if isinstance(self.const_stack[len(self.const_stack) - 1], str):
+                    last_val = f'"{self.const_stack[len(self.const_stack) - 1]}"'
+                elif isinstance(self.const_stack[len(self.const_stack) - 1], tuple) and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                    last_val = self.const_stack[len(self.const_stack) - 1][0]
+                else:
+                    last_val = self.const_stack[len(self.const_stack) - 1]
+                return f'{self.const_stack[len(self.const_stack) - 2][0]}.push({last_val})'
+            else:
+                if isinstance(self.const_stack[len(self.const_stack) - 1], str):
+                    last_val = f'"{self.const_stack[len(self.const_stack) - 1]}"'
+                elif isinstance(self.const_stack[len(self.const_stack) - 1], tuple) and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                    last_val = self.const_stack[len(self.const_stack) - 1][0]
+                else:
+                    last_val = self.const_stack[len(self.const_stack) - 1]
+                return f'{self.const_stack[len(self.const_stack) - 2][0]}.push({last_val})'
+        else:
+            self.const_stack.append('println!("")')
             return "NaN"
     
 class Compiler:
@@ -156,6 +179,7 @@ class Compiler:
         self.cmd_map = {
             "LOAD_CONST": "self.Sesh.load_const(instruction)",
             "LOAD_GLOBAL": "self.Sesh.load_global(instruction)",
+            "LOAD_ATTR": "self.Sesh.load_global(instruction)",
             "LOAD_FAST": "self.Sesh.load_fast(instruction)",
             "STORE_FAST": "self.Sesh.store_fast(instruction)",
             "BUILD_CONST_KEY_MAP": "self.Sesh.build_const_key_map()",
@@ -163,12 +187,12 @@ class Compiler:
             "BUILD_LIST": "self.Sesh.build_list(instruction)",
             "BINARY_OP": "self.Sesh.binary_op(instruction)",
             "POP_TOP": "self.Sesh.pop_top()",
-            "CALL": "self.Sesh.call_stack()"
+            "CALL": "self.Sesh.call_stack(instruction)"
         }
         self.optionals = {
             "o_type": "fn o_type<T>(t: &T) -> String {\n    std::any::type_name::<T>().to_string()\n}"
         }
-    def compile(self, compiled=False, output=False, printed=False, runCompiled=False):
+    def compile(self, compiled=False, output=False, printed=False, runCompiled=False, compile_type="development"):
         for instruction in self.bytec:
             try:
                 exec(self.cmd_map[instruction.opname])
@@ -176,11 +200,12 @@ class Compiler:
                 pass
         self.rust = f"""
 #![allow(warnings)]
-fn main() {{
-{'\n'.join([self.optionals[optional] for optional in self.Sesh.optionals])}
-{'\n'.join(line.rstrip() + ';' for line in self.Sesh.rust.splitlines())}
+fn main() {{{''.join([self.optionals[optional] for optional in self.Sesh.optionals])}
+{self.Sesh.rust}
 }}
         """
+        if compile_type == "production":
+            self.rust = self.rust.replace("\n", "")
         if compiled:
             with open("main.rs", "w") as f:
                 f.write(self.rust)

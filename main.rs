@@ -1,9 +1,12 @@
 
 #![allow(warnings)]
 fn main() {
-
-let mut name = "Hello, World!";
-println!("{:?}", name.len());
+/* 4 */
+let mut name = vec!["Daniel", "John", "Doe"];
+/* 5 */
+name.push("Kevin");
+/* 6 */
 println!("{:?}", name);
+
 }
         
