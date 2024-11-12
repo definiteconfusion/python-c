@@ -1,5 +1,6 @@
 import dis
 import subprocess
+import json
 class Objects:
     def __init__(self) -> None:
         self.const_stack=[]
@@ -34,10 +35,17 @@ class Objects:
         self.const_table.append(dict(zip(keys, values)))
         pass
     def list_extend(self):
-        itms = list(self.const_table[len(self.const_table)-1])
-        self.const_table.pop(len(self.const_table)-1)
-        self.const_table.append(itms)
+        itms = list(self.const_stack[len(self.const_stack)-1])
+        self.const_stack.pop(len(self.const_stack)-1)
+        self.const_stack.append((json.dumps(itms), 'Operator'))
         pass
+    def build_list(self, instruction):
+        if instruction.argval == 0:
+            pass
+        elif instruction.argval == 1:
+            self.const_stack.append((json.dumps([self.const_stack[len(self.const_stack)-1]]), 'Operator'))
+        elif instruction.argval == 2:
+            self.const_stack.append((json.dumps([self.const_stack[len(self.const_stack)-2], self.const_stack[len(self.const_stack)-1]]), 'Operator'))
     def store_fast(self, instruction):
         if instruction.argval not in self.fast:
             if type(self.const_stack[len(self.const_stack)-1])  == int:
@@ -58,6 +66,8 @@ class Objects:
                 self.rust += f'let mut {instruction.argval}: f{fl_type} = {self.const_stack[len(self.const_stack)-1]}\n'
             elif type(self.const_stack[len(self.const_stack)-1]) == str:
                 self.rust += f'let mut {instruction.argval} = "{self.const_stack[len(self.const_stack)-1]}"\n'
+            elif type(self.const_stack[len(self.const_stack)-1]) == tuple and self.const_stack[len(self.const_stack)-1][1] == 'Operator':
+                self.rust += f'let mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1][0]}\n'
             else:
                 self.rust += f'let mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1]}\n'
         else:
@@ -66,31 +76,37 @@ class Objects:
         self.const_stack.pop(len(self.const_stack)-1)
         pass
     def load_fast(self, instruction):
-        self.const_stack.append(instruction.argval)
+        self.const_stack.append((instruction.argval, 'Operator'))
         pass
     def binary_op(self, instruction):
         self.const_stack.append(f'{self.const_stack[len(self.const_stack)-2]} {instruction.argrepr} {self.const_stack[len(self.const_stack)-1]}')
         
     def _print(self):
         if not len(self.const_stack) == 0:
-            val = str(self.const_stack[len(self.const_stack) - 1])
-            has_operator = any(op in val for op in ['+', '-', '*', '/', '%'])
-            needs_quotes = not has_operator and val not in self.fast and not val.startswith('o_type') and type(self.const_stack[len(self.const_stack) - 1]) == str
-            return f'println!("{{}}", {("\"" + val + "\"") if needs_quotes else val})\n'
+            if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                return f'println!("{{:?}}", {self.const_stack[len(self.const_stack) - 1][0]})\n'
+            else:
+                return f'println!("{{:?}}", "{self.const_stack[len(self.const_stack) - 1]}")\n'
         else:
             return 'println!("")\n'
     def _type(self):
         if len(self.const_stack) != 0:
             if "o_type" not in self.optionals:
                 self.optionals.append("o_type")
-            self.const_stack.append(f'o_type(&{self.const_stack[len(self.const_stack) - 1]})')
+            if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1][0]})', 'Operator'))
+            else:
+                self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1]})', 'Operator'))
             return ""
         else:
             self.const_stack.append('println!("")\n')
             return "NaN"
     def _str(self):
         if len(self.const_stack) != 0:
-            self.const_stack.append(f'{self.const_stack[len(self.const_stack) - 1]}.to_string()')
+            if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1][0]}.to_string()', 'Operator'))
+            else:
+                self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1]}.to_string()', 'Operator'))
             return ""
         else:
             self.const_stack.append('println!("")\n')
@@ -108,6 +124,7 @@ class Compiler:
             "STORE_FAST": "self.Sesh.store_fast(instruction)",
             "BUILD_CONST_KEY_MAP": "self.Sesh.build_const_key_map()",
             "LIST_EXTEND": "self.Sesh.list_extend()",
+            "BUILD_LIST": "self.Sesh.build_list(instruction)",
             "BINARY_OP": "self.Sesh.binary_op(instruction)",
             "POP_TOP": "self.Sesh.pop_top()",
             "CALL": "self.Sesh.call_stack()"

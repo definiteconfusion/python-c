@@ -2,10 +2,9 @@ from utils import Compiler
 import dis
 
 def main():
-    strnum = "123"
-    num = 123
-    print(type(strnum))
-    print(type(str(num)))
+    name = "Hello, World!"
+    print(type(str(name)))
+    print(name)
 
 compiler = Compiler(main)
 compiler.compile(

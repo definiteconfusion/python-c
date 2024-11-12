@@ -1,5 +1,10 @@
-@staticmethod
-def binary_op(a, b, repr):
-    return eval(f"a {repr} b")
+import json
 
-print(binary_op(1, 2, "+"))
+tst = [
+    "Hello",
+    "World"
+]
+
+print(json.dumps(tst))
+print(type(json.dumps(tst)))
+print(type(eval(json.dumps(tst))))
