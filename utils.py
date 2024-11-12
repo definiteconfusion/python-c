@@ -14,15 +14,15 @@ class Objects:
         self.const_stack.append(instruction.argval)
     def call_stack(self):
         cmd_map = {
-            "print": self._print(),
-            "type": self._type()
-            
+            "print": self._print,
+            "type": self._type,
+            "str": self._str
         }
-        if self.global_stack[len(self.global_stack)-1] in cmd_map:
-            self.rust += cmd_map[self.global_stack[len(self.global_stack)-1]]
-            self.global_stack.pop(len(self.global_stack)-1)
-        else:
-            pass
+        if self.global_stack[-1] in cmd_map:
+            result = cmd_map[self.global_stack[-1]]()
+            if result:
+                self.rust += result
+            self.global_stack.pop()
     def pop_top(self):
         self.const_stack=[]
         self.global_stack=[]
@@ -40,7 +40,26 @@ class Objects:
         pass
     def store_fast(self, instruction):
         if instruction.argval not in self.fast:
-            self.rust += f'let mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1]}\n'
+            if type(self.const_stack[len(self.const_stack)-1])  == int:
+                bits = len(bin(self.const_stack[len(self.const_stack)-1])[2:])
+                if bits <= 31:
+                    int_type = 32
+                elif bits <= 63:
+                    int_type = 64
+                else:
+                    int_type = 128
+                self.rust += f'let mut {instruction.argval}: i{int_type} = {self.const_stack[len(self.const_stack)-1]}\n'
+            elif type(self.const_stack[len(self.const_stack)-1]) == float:
+                value = abs(self.const_stack[len(self.const_stack)-1])
+                if value < 3.4e38:
+                    fl_type = 32
+                else:
+                    fl_type = 64
+                self.rust += f'let mut {instruction.argval}: f{fl_type} = {self.const_stack[len(self.const_stack)-1]}\n'
+            elif type(self.const_stack[len(self.const_stack)-1]) == str:
+                self.rust += f'let mut {instruction.argval} = "{self.const_stack[len(self.const_stack)-1]}"\n'
+            else:
+                self.rust += f'let mut {instruction.argval} = {self.const_stack[len(self.const_stack)-1]}\n'
         else:
             self.rust += f'{instruction.argval} = {self.const_stack[len(self.const_stack)-1]}\n'
         self.fast[instruction.argval] = self.const_stack[len(self.const_stack)-1]
@@ -64,8 +83,14 @@ class Objects:
         if len(self.const_stack) != 0:
             if "o_type" not in self.optionals:
                 self.optionals.append("o_type")
-            # This uses the `o_type` function as seen on line 1 of `optional_addons.rs`
             self.const_stack.append(f'o_type(&{self.const_stack[len(self.const_stack) - 1]})')
+            return ""
+        else:
+            self.const_stack.append('println!("")\n')
+            return "NaN"
+    def _str(self):
+        if len(self.const_stack) != 0:
+            self.const_stack.append(f'{self.const_stack[len(self.const_stack) - 1]}.to_string()')
             return ""
         else:
             self.const_stack.append('println!("")\n')
@@ -87,6 +112,9 @@ class Compiler:
             "POP_TOP": "self.Sesh.pop_top()",
             "CALL": "self.Sesh.call_stack()"
         }
+        self.optionals = {
+            "o_type": "fn o_type<T>(t: &T) -> String {\n    std::any::type_name::<T>().to_string()\n}"
+        }
     def compile(self, compiled=False, output=False, printed=False, runCompiled=False):
         for instruction in self.bytec:
             try:
@@ -96,6 +124,7 @@ class Compiler:
         self.rust = f"""
 #![allow(warnings)]
 fn main() {{
+{'\n'.join([self.optionals[optional] for optional in self.Sesh.optionals])}
 {'\n'.join(line.rstrip() + ';' for line in self.Sesh.rust.splitlines())}
 }}
         """
