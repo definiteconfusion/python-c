@@ -3,7 +3,7 @@ import dis
 
 def main():
     name = "Hello, World!"
-    print(type(str(name)))
+    print(len(name))
     print(name)
 
 compiler = Compiler(main)

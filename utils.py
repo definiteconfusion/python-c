@@ -2,6 +2,31 @@ import dis
 import subprocess
 import json
 class Objects:
+    """
+    A class to handle Python bytecode translation to Rust code.
+    This class maintains various stacks and state information needed for the translation process,
+    including constant values, global variables, and generated Rust code.
+    Attributes:
+        const_stack (list): Stack for storing constant values
+        global_stack (list): Stack for storing global variable names
+        optionals (list): List of optional features/imports needed
+        fast (dict): Dictionary for storing local variables
+        rust (str): Generated Rust code output
+    Methods:
+        load_global(instruction): Handles loading of global names
+        load_const(instruction): Handles loading of constant values
+        call_stack(): Processes function calls from the global stack
+        pop_top(): Clears the constant and global stacks
+        build_const_key_map(): Builds a dictionary from keys and values on const_table
+        list_extend(): Extends a list with items from const stack
+        build_list(instruction): Builds a list with specified number of items
+        store_fast(instruction): Stores a local variable with type inference
+        load_fast(instruction): Loads a local variable onto const stack
+        binary_op(instruction): Handles binary operations
+        _print(): Handles print function translation
+        _type(): Handles type() function translation
+        _str(): Handles str() function translation
+    """
     def __init__(self) -> None:
         self.const_stack=[]
         self.global_stack=[]
@@ -17,7 +42,8 @@ class Objects:
         cmd_map = {
             "print": self._print,
             "type": self._type,
-            "str": self._str
+            "str": self._str,
+            "len": self._len
         }
         if self.global_stack[-1] in cmd_map:
             result = cmd_map[self.global_stack[-1]]()
@@ -107,6 +133,16 @@ class Objects:
                 self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1][0]}.to_string()', 'Operator'))
             else:
                 self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1]}.to_string()', 'Operator'))
+            return ""
+        else:
+            self.const_stack.append('println!("")\n')
+            return "NaN"
+    def _len(self):
+        if len(self.const_stack) != 0:
+            if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
+                self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1][0]}.len()', 'Operator'))
+            else:
+                self.const_stack.append((f'{self.const_stack[len(self.const_stack) - 1]}.len()', 'Operator'))
             return ""
         else:
             self.const_stack.append('println!("")\n')
