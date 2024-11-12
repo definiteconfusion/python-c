@@ -1,5 +1,5 @@
 import dis
-
+import subprocess
 class Objects:
     def __init__(self) -> None:
         self.const_stack=[]
@@ -55,7 +55,8 @@ class Objects:
     def _print(self):
         if not len(self.const_stack) == 0:
             val = str(self.const_stack[len(self.const_stack) - 1])
-            needs_quotes = val not in self.fast and not val.startswith('o_type') and type(self.const_stack[len(self.const_stack) - 1]) == str
+            has_operator = any(op in val for op in ['+', '-', '*', '/', '%'])
+            needs_quotes = not has_operator and val not in self.fast and not val.startswith('o_type') and type(self.const_stack[len(self.const_stack) - 1]) == str
             return f'println!("{{}}", {("\"" + val + "\"") if needs_quotes else val})\n'
         else:
             return 'println!("")\n'
@@ -86,10 +87,25 @@ class Compiler:
             "POP_TOP": "self.Sesh.pop_top()",
             "CALL": "self.Sesh.call_stack()"
         }
-    def compile(self):
+    def compile(self, compiled=False, output=False, printed=False, runCompiled=False):
         for instruction in self.bytec:
             try:
                 exec(self.cmd_map[instruction.opname])
             except KeyError:
                 pass
-        self.rust = '\n'.join(line.rstrip() + ';' for line in self.Sesh.rust.splitlines())
+        self.rust = f"""
+#![allow(warnings)]
+fn main() {{
+{'\n'.join(line.rstrip() + ';' for line in self.Sesh.rust.splitlines())}
+}}
+        """
+        if compiled:
+            with open("main.rs", "w") as f:
+                f.write(self.rust)
+            subprocess.run(["rustc", "main.rs"])
+        if runCompiled:
+            print(subprocess.run(["./main"], text=True, check=True, capture_output=True).stdout)
+        if output:
+            return self.rust
+        if printed:
+            print(self.rust)
