@@ -123,6 +123,9 @@ class Objects:
                 self.optionals.append("o_type")
             if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
                 self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1][0]})', 'Operator'))
+            elif type(self.const_stack[len(self.const_stack) - 1]) == str:
+                print((f'o_type(&"{self.const_stack[len(self.const_stack) - 1]}")', 'Operator'))
+                self.const_stack.append((f'o_type(&"{self.const_stack[len(self.const_stack) - 1]}")', 'Operator'))
             else:
                 self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1]})', 'Operator'))
             return ""
@@ -151,30 +154,20 @@ class Objects:
             return "NaN"
     def _append(self):
         if len(self.const_stack) != 0:
-            if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
-                if isinstance(self.const_stack[len(self.const_stack) - 1], str):
-                    last_val = f'"{self.const_stack[len(self.const_stack) - 1]}"'
-                elif isinstance(self.const_stack[len(self.const_stack) - 1], tuple) and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
-                    last_val = self.const_stack[len(self.const_stack) - 1][0]
-                else:
-                    last_val = self.const_stack[len(self.const_stack) - 1]
-                return f'{self.const_stack[len(self.const_stack) - 2][0]}.push({last_val})'
+            if type(self.const_stack[-1]) == tuple and self.const_stack[-1][1] == 'Operator':
+                return (f'{self.const_stack[-3][0]}.push({self.const_stack[-1][0]})', 'Operator')[0]
             else:
-                if isinstance(self.const_stack[len(self.const_stack) - 1], str):
-                    last_val = f'"{self.const_stack[len(self.const_stack) - 1]}"'
-                elif isinstance(self.const_stack[len(self.const_stack) - 1], tuple) and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
-                    last_val = self.const_stack[len(self.const_stack) - 1][0]
-                else:
-                    last_val = self.const_stack[len(self.const_stack) - 1]
-                return f'{self.const_stack[len(self.const_stack) - 2][0]}.push({last_val})'
-        else:
-            self.const_stack.append('println!("")')
-            return "NaN"
-    
+                return (f'{self.const_stack[-2][0]}.push("{self.const_stack[-1]}")', 'Operator')[0]
+
 class Compiler:
-    def __init__(self, Main) -> None:
+    def __init__(self, Main=None, Bytes=None) -> None:
         self.Sesh = Objects()
-        self.bytec = dis.get_instructions(Main)
+        if Main and not Bytes:
+            self.bytec = dis.get_instructions(Main)
+        elif Bytes and not Main:
+            self.bytec = Bytes
+        else:
+            raise ValueError("Either Main or Bytes must be provided, but not both.")
         self.rust = ""
         self.cmd_map = {
             "LOAD_CONST": "self.Sesh.load_const(instruction)",
