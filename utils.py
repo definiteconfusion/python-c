@@ -1,6 +1,7 @@
 import dis
 import subprocess
 import json
+import re
 class Objects:
     """
     A class to handle Python bytecode translation to Rust code.
@@ -31,22 +32,28 @@ class Objects:
     def __init__(self) -> None:
         self.const_stack=[]
         self.global_stack=[]
+        self.jump_stack=[]
         self.optionals=[]
         self.fast={}
         self.rust = ""
-        
-    def load_global(self, instruction):
-        self.global_stack.append(instruction.argval)
-    def load_const(self, instruction):
-        self.const_stack.append(instruction.argval)
-    def call_stack(self, instruction):
-        cmd_map = {
+        self.cmdMap = {
             "print": self._print,
             "type": self._type,
             "str": self._str,
             "len": self._len,
             "append": self._append
         }
+        
+    def load_global(self, instruction):
+        self.global_stack.append(instruction.argval)
+    def load_const(self, instruction):
+        self.const_stack.append(instruction.argval)
+    def load_jump(self, instruction):
+        self.jump_stack.append((int(instruction.argrepr.split(" ")[-1]), "Base", instruction.positions.lineno))
+    def jump_forward(self, instruction):
+        self.jump_stack.append((int(instruction.argrepr.split(" ")[-1]), "Extra"))
+    def call_stack(self, instruction):
+        cmd_map = self.cmdMap
         if self.global_stack[-1] in cmd_map:
             result = cmd_map[self.global_stack[-1]]()
             if result:
@@ -55,6 +62,7 @@ class Objects:
     def pop_top(self):
         self.const_stack=[]
         self.global_stack=[]
+        self.jump_stack=[]
         pass
     def build_const_key_map(self):
         keys = self.const_table[len(self.const_table)-1]
@@ -109,6 +117,19 @@ class Objects:
     def binary_op(self, instruction):
         self.const_stack.append(f'{self.const_stack[len(self.const_stack)-2]} {instruction.argrepr} {self.const_stack[len(self.const_stack)-1]}')
         
+    def compare_op(self, instruction):
+        if type(self.const_stack[-1])==tuple and type(self.const_stack[-2])==tuple:
+            stemnt = f"{self.const_stack[-1][0]}{instruction.argval}{self.const_stack[-2][0]}"    
+        elif type(self.const_stack[-1])==tuple:
+            stemnt = f'{self.const_stack[-1][0]}{instruction.argval}"{self.const_stack[-2]}"'   
+        elif type(self.const_stack[-2])==tuple:
+            stemnt = f'"{self.const_stack[-1]}"{instruction.argval}{self.const_stack[-2][0]}'
+        else:
+            stemnt = f'"{self.const_stack[-1]}"{instruction.argval}"{self.const_stack[-2]}"'
+        self.const_stack.pop(len(self.const_stack)-1)
+        self.const_stack.pop(len(self.const_stack)-2)
+        self.const_stack.append((stemnt, "Operator"))
+        
     def _print(self):
         if not len(self.const_stack) == 0:
             if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
@@ -122,9 +143,8 @@ class Objects:
             if "o_type" not in self.optionals:
                 self.optionals.append("o_type")
             if type(self.const_stack[len(self.const_stack) - 1]) == tuple and self.const_stack[len(self.const_stack) - 1][1] == 'Operator':
-                self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1][0]})', 'Operator'))
+                self.const_stack.append((f'o_type(&({self.const_stack[len(self.const_stack) - 1][0]}))', 'Operator'))
             elif type(self.const_stack[len(self.const_stack) - 1]) == str:
-                print((f'o_type(&"{self.const_stack[len(self.const_stack) - 1]}")', 'Operator'))
                 self.const_stack.append((f'o_type(&"{self.const_stack[len(self.const_stack) - 1]}")', 'Operator'))
             else:
                 self.const_stack.append((f'o_type(&{self.const_stack[len(self.const_stack) - 1]})', 'Operator'))
@@ -158,7 +178,24 @@ class Objects:
                 return (f'{self.const_stack[-3][0]}.push({self.const_stack[-1][0]})', 'Operator')[0]
             else:
                 return (f'{self.const_stack[-2][0]}.push("{self.const_stack[-1]}")', 'Operator')[0]
-
+    def _if(self):
+        ins=""
+        cmd_map = self.cmdMap
+        for oprand in self.global_stack:
+            if self.global_stack[-1] in cmd_map:
+                result = cmd_map[self.global_stack[-1]]()
+                if result:
+                    ins+=result
+                self.global_stack.pop()
+                
+        if type(self.const_stack[0]) == tuple and self.const_stack[0][1] == "Operator":
+            return f"""if {self.const_stack[0][0]}{{
+            {ins}
+            }}"""
+        else:
+            return f"""if {self.const_stack[0]}{{
+            {ins}
+            }}"""
 class Compiler:
     def __init__(self, Main=None, Bytes=None) -> None:
         self.Sesh = Objects()
@@ -180,6 +217,9 @@ class Compiler:
             "BUILD_LIST": "self.Sesh.build_list(instruction)",
             "BINARY_OP": "self.Sesh.binary_op(instruction)",
             "POP_TOP": "self.Sesh.pop_top()",
+            "COMPARE_OP":"self.Sesh.compare_op(instruction)",
+            "POP_JUMP_IF_FALSE":"self.Sesh.load_jump(instruction)",
+            "JUMP_FORWARD":"self.Sesh.jump_forward(instruction)",
             "CALL": "self.Sesh.call_stack(instruction)"
         }
         self.optionals = {
@@ -199,6 +239,7 @@ fn main() {{{''.join([self.optionals[optional] for optional in self.Sesh.optiona
         """
         if compile_type == "production":
             self.rust = self.rust.replace("\n", "")
+            self.rust = re.sub(r'/\*\s*\d+\s*\*/', '', self.rust)
         if compiled:
             with open("main.rs", "w") as f:
                 f.write(self.rust)

@@ -1,14 +1,14 @@
 
 #![allow(warnings)]
-fn main() {fn o_type<T>(t: &T) -> String {
-    std::any::type_name::<T>().to_string()
-}
+fn main() {
 /* 4 */
-let mut name = o_type(&"John");
-/* 5 */
-name.push(o_type(&"Jane"));
+let mut test = "hello";
 /* 6 */
-println!("{:?}", name);
+println!("{:?}", "Hello");
+/* 7 */
+println!("{:?}", "World");
+/* 8 */
+println!("{:?}", test);
 
 }
         
